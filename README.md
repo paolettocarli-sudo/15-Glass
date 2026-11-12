@@ -1,2 +1,2 @@
-# 15-Glass
-A small puzzle game, evolving from the classic 15
+# 15-Glass a small puzzle game, evolving from the classic 15.
+Its complexity grows enormously: the number of possible configurations is roughly a billion times larger, while the number of moves needed to solve it increases by an estimated 50-60%. Compared with the Rubik’s Cube, it has more possible configurations, but how hard it feels to a person depends largely on which solving method they discover.
