@@ -61,7 +61,7 @@ to{background:linear-gradient(135deg,color-mix(in srgb,var(--num) 75%,#fff9),col
 <body>
 <header><h1>15 <b>Glass</b></h1><div class="tools"><button id="snd" aria-label="Sound">🔊</button><button id="lang">EN</button></div></header>
 <div class="bar">
-  <select id="lvl"><option value="25"></option><option value="70" selected></option><option value="160"></option></select>
+  <select id="lvl"><option value="25"></option><option value="70" selected></option><option value="160"></option><option value="fixed"></option></select>
   <button id="new" data-i="new"></button>
   <button id="reset" data-i="reset"></button>
   <button id="solve" data-i="solve"></button>
@@ -73,6 +73,7 @@ to{background:linear-gradient(135deg,color-mix(in srgb,var(--num) 75%,#fff9),col
   <button id="demo" data-i="demo"></button>
   <label><span data-i="color"></span> <input type="color" id="col" value="#7df9ff"></label>
   <span><span data-i="moves"></span>: <b id="mv">0</b></span>
+  <span>⏱ <b id="tm">00:00</b></span>
 </div>
 <p class="rules" data-i="rules"></p>
 <script>
@@ -80,23 +81,23 @@ const $=id=>document.getElementById(id);
 const board=$('board'),msg=$('msg'),mvEl=$('mv'),frame=$('frame');
 const D={
 it:{new:`Nuova partita`,reset:`Ricomincia`,solve:`Risolvi`,stop:`Stop`,demo:`Demo`,pause:`Pausa`,resume:`Riprendi`,color:`Colore numeri`,moves:`Mosse`,
-lv:[`Livello Facile`,`Livello Medio`,`Livello Difficile`],paused:`PAUSA`,pausedSub:`Partita salvata. Premi Riprendi per continuare.`,
+lv:[`Livello Facile`,`Livello Medio`,`Livello Difficile`,`Livello Sfida`],paused:`PAUSA`,pausedSub:`Partita salvata. Premi Riprendi per continuare.`,
 rules:`Le tessere scivolano solo verso destra e verso il basso. Negli altri casi ruotano sul lato rivolto alla casella vuota e il numero si ribalta. Obiettivo: casella vuota in alto a sinistra, numeri da 1 a 15 in ordine e tutti dritti.`,
-win:`Grande!`,winSub:n=>`Risolto in ${n} mosse`,auto:`Risolto automaticamente!`,wait:`Attendi la fine del movimento in corso.`,
+win:`Grande!`,winSub:a=>`Risolto in ${a[0]} mosse · ${fmt(a[1])}`+(a[2]?` · Nuovo record!`:a[3]!==undefined?` · Record: ${fmt(a[3])}`:``),auto:`Risolto automaticamente!`,noSolve:`La risoluzione automatica non è disponibile nel Livello Sfida.`,wait:`Attendi la fine del movimento in corso.`,
 restarted:`Schema ordinato ripristinato. Premi “Nuova partita” per mescolare.`,saved:`Partita salvata ripresa. Premi Riprendi.`,
 d0:`Una tessera a destra della casella vuota ruota sul lato sinistro: il numero si specchia.`,d1:`Una tessera a sinistra della vuota scivola verso destra, senza ribaltarsi.`,
 d2:`Una tessera sotto la casella vuota ruota sul lato superiore: il numero si capovolge.`,d3:`Una tessera sopra la vuota scivola verso il basso, senza ribaltarsi.`,
 d4:`Ora 1 e 4 sono ribaltati: per vincere devono tornare dritti. Tocca a te!`},
 en:{new:`New game`,reset:`Restart`,solve:`Solve`,stop:`Stop`,demo:`Demo`,pause:`Pause`,resume:`Resume`,color:`Number color`,moves:`Moves`,
-lv:[`Easy Level`,`Medium Level`,`Hard Level`],paused:`PAUSED`,pausedSub:`Game saved. Press Resume to continue.`,
+lv:[`Easy Level`,`Medium Level`,`Hard Level`,`Challenge Level`],paused:`PAUSED`,pausedSub:`Game saved. Press Resume to continue.`,
 rules:`Tiles only slide to the right and downward. In every other case they pivot on the edge facing the empty cell and the number is flipped. Goal: empty cell top left, numbers 1 to 15 in order, all upright.`,
-win:`Good job!`,winSub:n=>`Solved in ${n} moves`,auto:`Solved automatically!`,wait:`Wait for the current movement to finish.`,
+win:`Good job!`,winSub:a=>`Solved in ${a[0]} moves · ${fmt(a[1])}`+(a[2]?` · New record!`:a[3]!==undefined?` · Best: ${fmt(a[3])}`:``),auto:`Solved automatically!`,noSolve:`Auto-solve is not available in the Challenge Level.`,wait:`Wait for the current movement to finish.`,
 restarted:`Ordered layout restored. Press “New game” to shuffle.`,saved:`Saved game loaded. Press Resume.`,
 d0:`A tile to the right of the empty cell pivots on its left edge: the number is mirrored.`,d1:`A tile to the left of the empty cell slides to the right, without flipping.`,
 d2:`A tile below the empty cell pivots on its top edge: the number is turned upside down.`,d3:`A tile above the empty cell slides down, without flipping.`,
 d4:`Now 1 and 4 are flipped: to win they must be upright again. Your turn!`}};
 let lang=(navigator.language||`it`).startsWith(`it`)?`it`:`en`,muted=false;
-let grid,els={},moves=0,busy=false,won=false,paused=false,hist=[],keys=[],solving=false,stop=false,cur=[``,0];
+let grid,els={},moves=0,busy=false,won=false,paused=false,hist=[],keys=[],solving=false,stop=false,cur=[``,0],inGame=false,fixedLvl=false,curLvl=`70`,elapsed=0,tRun=null;
 const T=(k,a)=>{const v=D[lang][k];return typeof v===`function`?v(a):v;};
 function setMsg(k,a){cur=[k,a];msg.className=``;frame.classList.remove(`win`);
   if(k===`win`){msg.className=`win`;msg.innerHTML=`<b>${T(`win`)}</b><br>${T(`winSub`,a)}`;}else msg.textContent=k?T(k,a):``;}
@@ -110,7 +111,14 @@ function ui(){
   if(cur[0])setMsg(cur[0],cur[1]);
 }
 function store(k,v){try{localStorage.setItem(k,v);}catch(e){}}
-function save(){store(`g15`,JSON.stringify({g:grid,h:hist,k:keys,m:moves,p:paused}));}
+const now=()=>performance.now();
+function elapsedNow(){return elapsed+(tRun!==null?now()-tRun:0);}
+function startTimer(){if(tRun===null&&!won)tRun=now();}
+function stopTimer(){if(tRun!==null){elapsed+=now()-tRun;tRun=null;}}
+function fmt(ms){const s=Math.floor(ms/1000);return String(Math.floor(s/60)).padStart(2,`0`)+`:`+String(s%60).padStart(2,`0`);}
+function bests(){try{return JSON.parse(localStorage.getItem(`g15best`)||`{}`);}catch(e){return{};}}
+setInterval(()=>{$(`tm`).textContent=fmt(elapsedNow());},250);
+function save(){store(`g15`,JSON.stringify({g:grid,h:hist,k:keys,m:moves,p:paused,ig:inGame,fx:fixedLvl,lv:curLvl,t:elapsedNow()}));}
 
 let ac;
 function click(v=1){
@@ -174,11 +182,14 @@ function step(i,mode,dur,cb,vol=1){
 function resume(){paused=false;ui();save();}
 function newGame(){
   if(busy)return;
-  paused=false;solved();resetHist();moves=0;won=false;mvEl.textContent=0;setMsg(``);build();place();ui();
+  curLvl=$(`lvl`).value;fixedLvl=curLvl===`fixed`;elapsed=0;tRun=null;inGame=false;
+  paused=false;solved();
+  if(fixedLvl)grid.forEach(g=>{if(g){g.fx=1;g.fy=1;}}); // Sfida: schema finale con tutti i numeri ribaltati
+  resetHist();moves=0;won=false;mvEl.textContent=0;setMsg(``);build();place();ui();
   busy=true;
-  let n=+$(`lvl`).value,last=-1;
+  let n=fixedLvl?0:+curLvl,last=-1;
   const next=()=>{
-    if(n--<=0){busy=false;save();return;}
+    if(n--<=0){busy=false;inGame=true;save();return;}
     const ns=neighbors().filter(i=>grid[i].n!==last);
     const i=ns[Math.floor(Math.random()*ns.length)],t=grid[i].n;
     last=t;
@@ -188,22 +199,29 @@ function newGame(){
 }
 function tryMove(i){
   if(busy||won||paused||i<0||!neighbors().includes(i))return;
-  busy=true;const t=grid[i].n;
+  busy=true;startTimer();const t=grid[i].n;
   step(i,`play`,220,()=>{rec(t,i,`play`);busy=false;moves++;mvEl.textContent=moves;check();save();});
 }
 function check(){
   const ok=grid[0]===null&&grid.every((g,i)=>i===0||(g&&g.n===i&&!g.fx&&!g.fy));
-  if(ok){won=true;setMsg(`win`,moves);frame.classList.add(`win`);}
+  if(ok){
+    won=true;inGame=false;stopTimer();
+    const b=bests(),t=Math.round(elapsed),old=b[curLvl],isNew=old===undefined||t<old;
+    if(isNew){b[curLvl]=t;store(`g15best`,JSON.stringify(b));}
+    setMsg(`win`,[moves,t,isNew&&old!==undefined,old]);frame.classList.add(`win`);
+  }
 }
 function restart(){
   if(busy){setMsg(`wait`);return;}
-  paused=false;solved();resetHist();moves=0;won=false;mvEl.textContent=0;build();place();ui();setMsg(`restarted`);save();
+  paused=false;inGame=false;fixedLvl=false;elapsed=0;tRun=null;solved();resetHist();moves=0;won=false;mvEl.textContent=0;build();place();ui();setMsg(`restarted`);save();
 }
 function solve(){
   if(solving){stop=true;return;}
-  if(busy||won||!hist.length)return;
+  if(busy||won)return;
+  if(fixedLvl){setMsg(`noSolve`);return;}
+  if(!hist.length)return;
   if(paused)resume();
-  solving=true;stop=false;busy=true;ui();
+  solving=true;stop=false;busy=true;stopTimer();ui();
   const go=()=>{
     if(stop||!hist.length){
       solving=false;busy=false;ui();save();
@@ -216,20 +234,20 @@ function solve(){
   go();
 }
 function togglePause(){
-  if(busy||won||!hist.length)return;
-  paused=!paused;ui();save();
+  if(busy||won||!inGame)return;
+  paused=!paused;if(paused)stopTimer();else if(elapsed>0)startTimer();ui();save();
 }
 function demo(){
   if(busy)return;
   busy=true;
   const sv={g:grid.map(g=>g&&{...g}),h:hist.slice(),k:keys.slice(),m:moves,w:won,p:paused,c:cur};
-  paused=false;solved();build();place();ui();setMsg(``);
+  stopTimer();paused=false;solved();build();place();ui();setMsg(``);
   const script=[[1,`d0`],[0,`d1`],[4,`d2`],[0,`d3`]];
   let k=0;
   const next=()=>{
     if(k>=script.length){
       setMsg(`d4`);
-      setTimeout(()=>{grid=sv.g;hist=sv.h;keys=sv.k;moves=sv.m;won=sv.w;paused=sv.p;mvEl.textContent=moves;build();place();ui();setMsg(sv.c[0],sv.c[1]);if(won&&sv.c[0]===`win`)frame.classList.add(`win`);busy=false;},3500);
+      setTimeout(()=>{grid=sv.g;hist=sv.h;keys=sv.k;moves=sv.m;won=sv.w;paused=sv.p;mvEl.textContent=moves;build();place();ui();setMsg(sv.c[0],sv.c[1]);if(won&&sv.c[0]===`win`)frame.classList.add(`win`);if(elapsed>0&&!paused&&!won)startTimer();busy=false;},3500);
       return;
     }
     const [i,c]=script[k++];setMsg(c);
@@ -251,8 +269,8 @@ try{
 solved();resetHist();
 try{
   const s=JSON.parse(localStorage.getItem(`g15`)||`null`);
-  if(s&&Array.isArray(s.g)&&s.g.length===16&&s.h.length){
-    grid=s.g;hist=s.h;keys=s.k;moves=s.m||0;paused=true;mvEl.textContent=moves;cur=[`saved`,0];
+  if(s&&Array.isArray(s.g)&&s.g.length===16&&(s.ig||s.h.length)){
+    grid=s.g;hist=s.h;keys=s.k;moves=s.m||0;inGame=true;fixedLvl=!!s.fx;curLvl=s.lv||`70`;elapsed=s.t||0;$(`lvl`).value=curLvl;paused=true;mvEl.textContent=moves;cur=[`saved`,0];
   }
 }catch(e){solved();resetHist();}
 build();place();ui();
